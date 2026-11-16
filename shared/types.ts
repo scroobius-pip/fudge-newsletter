@@ -7,6 +7,8 @@ export interface Recipient {
   subscriberId: number;
   email: string;
   name?: string;
+  // Fudge: audience segment used to pick the {{opening}} line.
+  segment?: string;
   token: string;
 }
 
@@ -31,6 +33,8 @@ export interface CampaignRow {
   mail_merge_enabled: number;
   mail_merge_html: string | null;
   mail_merge_text: string | null;
+  // Fudge: JSON MergeConfig for {{greeting}} / {{opening}} (shared/merge-fields.ts).
+  merge_json: string | null;
 }
 
 export interface AttachmentRow {

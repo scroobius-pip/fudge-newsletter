@@ -1,0 +1,41 @@
+# Fudge deployment of cf-newsletter: one Worker (consumer + unsubscribe + admin API).
+# Deploy from the repository root:  wrangler deploy --config workers/fudge/wrangler.toml
+# Secrets (set with `wrangler secret put`, never committed): ADMIN_TOKEN.
+name = "fudge-newsletter"
+main = "src/index.ts"
+compatibility_date = "2026-11-01"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+
+# Most configuration is read from the D1 `settings` table (shared/settings.ts):
+# BASE_DOMAIN, FROM_ADDRESS, TRACKING_BASE_URL, footers and warmup caps.
+# Env vars for those keys are ignored. These two are read from env directly.
+[vars]
+UNSUBSCRIBE_MAILTO = "false"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "fudge-newsletter-db"
+database_id = "541355f0-b55d-4523-aaad-ecf9ed405c42"
+
+[[send_email]]
+name = "SEND_EMAIL"
+allowed_sender_addresses = ["simdi@news.withfudge.com"]
+
+[[queues.producers]]
+binding = "QUEUE"
+queue = "fudge-newsletter-queue"
+
+[[queues.consumers]]
+queue = "fudge-newsletter-queue"
+max_batch_size = 10
+max_batch_timeout = 5
+# One consumer at a time: each invocation reads the day's remaining budget once,
+# so parallel consumers would overshoot the daily cap.
+max_concurrency = 1
+# Throttled batches are retried until the next UTC day; each retry counts here.
+max_retries = 100
+dead_letter_queue = "fudge-newsletter-dlq"
+
+[observability]
+enabled = true

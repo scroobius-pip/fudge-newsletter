@@ -77,10 +77,13 @@ CREATE TABLE IF NOT EXISTS subscribers (
   -- Double opt-in token, separate from `token` (the unsubscribe token). Set
   -- while a public signup is pending (verified=0); cleared on confirmation.
   confirm_token   TEXT,
+  -- Fudge: audience segment, picks the campaign's {{opening}} line.
+  segment         TEXT,
   UNIQUE (newsletter_id, email)
 );
 CREATE INDEX IF NOT EXISTS idx_subscribers_status ON subscribers(status);
 CREATE INDEX IF NOT EXISTS idx_subscribers_newsletter ON subscribers(newsletter_id);
+CREATE INDEX IF NOT EXISTS idx_subscribers_segment ON subscribers(newsletter_id, segment);
 
 CREATE TABLE IF NOT EXISTS campaigns (
   id                      TEXT PRIMARY KEY,
@@ -98,7 +101,9 @@ CREATE TABLE IF NOT EXISTS campaigns (
   failed_count            INTEGER NOT NULL DEFAULT 0,
   attachment_count        INTEGER NOT NULL DEFAULT 0,
   attachment_total_bytes  INTEGER NOT NULL DEFAULT 0,
-  link_mode               INTEGER NOT NULL DEFAULT 0
+  link_mode               INTEGER NOT NULL DEFAULT 0,
+  -- Fudge: JSON merge config ({{greeting}} / {{opening}}), see shared/merge-fields.ts.
+  merge_json              TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_campaigns_newsletter ON campaigns(newsletter_id);
 

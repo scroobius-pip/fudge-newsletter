@@ -17,6 +17,7 @@ import {
 import { instrumentHtml, unsubscribeUrl, signDownloadUrl } from '../../../shared/tracking';
 import { resolveFooter, renderFooterHtml, renderFooterText } from '../../../shared/footer';
 import { applyMailMerge } from '../../../shared/mail-merge';
+import { parseMergeConfig, renderMergeFields } from '../../../shared/merge-fields';
 import type { QueueMessage } from '../../../shared/types';
 import {
   readWarmupConfig,
@@ -58,6 +59,8 @@ export interface Env {
   // daily cap falls back to the hardwired default.
   ACCESS_ACCOUNT_ID?: string;
   CF_READ_API_TOKEN?: string;
+  // Fudge: 'false' drops the mailto: List-Unsubscribe target (no Email Routing).
+  UNSUBSCRIBE_MAILTO?: string;
 }
 
 export default {
@@ -116,6 +119,24 @@ export default {
         message: `Processing batch of ${recipients.length} recipient(s)`,
         detail: { recipients: recipients.length },
       });
+
+      // Fudge: stop switch. A campaign set to anything but 'sending' (e.g.
+      // 'failed' after too many bounces) drops its remaining queued batches.
+      const live = await env.DB
+        .prepare('SELECT status FROM campaigns WHERE id = ?')
+        .bind(campaignId)
+        .first<{ status: string }>();
+      if (!live || live.status !== 'sending') {
+        await writeLog(env.DB, {
+          level: 'warn',
+          source: 'consumer',
+          event: 'consumer.campaign_stopped',
+          campaignId,
+          message: `Campaign is ${live?.status ?? 'missing'} — dropped batch of ${recipients.length}`,
+        });
+        msg.ack();
+        continue;
+      }
 
       // Warmup gate: if no daily capacity, re-queue until next UTC midnight.
       if (dailyRemaining <= 0) {
@@ -207,6 +228,9 @@ export default {
             let html = await renderRecipientHtml(env, campaign, allAtts, r.subscriberId);
             let text = campaign.text ?? '';
             ({ html, text } = applyMailMerge(campaign, r.name, html, text));
+            const merge = parseMergeConfig(campaign.merge_json);
+            html = renderMergeFields(html, merge, r.name, r.segment, true);
+            text = renderMergeFields(text, merge, r.name, r.segment, false);
             const unsubUrl = unsubscribeUrl(env.TRACKING_BASE_URL, r.subscriberId, r.token, campaignId);
             // Append the footer AFTER tracking instrumentation so its
             // unsubscribe/author links are never click-rewritten. The footer is
@@ -241,7 +265,11 @@ export default {
               html,
               attachments: parts,
               headers: {
-                'List-Unsubscribe': `<${unsubUrl}>, <mailto:unsubscribe+${r.subscriberId}@${env.BASE_DOMAIN}>`,
+                // Fudge: the mailto form needs Email Routing (bounce worker) on the
+                // sending domain; set UNSUBSCRIBE_MAILTO='false' when it isn't deployed.
+                'List-Unsubscribe': rawEnv.UNSUBSCRIBE_MAILTO === 'false'
+                  ? `<${unsubUrl}>`
+                  : `<${unsubUrl}>, <mailto:unsubscribe+${r.subscriberId}@${env.BASE_DOMAIN}>`,
                 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
                 'X-Campaign-ID': campaignId,
               },

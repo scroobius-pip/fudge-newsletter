@@ -3,9 +3,12 @@ import { verifyHmac } from '../../../shared/tracking';
 import { buildEmail } from '../../../shared/mime';
 import { loadSettings, resolveTrackingBaseUrl } from '../../../shared/settings';
 import { writeLog } from '../../../shared/db';
+import { recordFudgeOptOut } from '../../../shared/fudge-consent';
 
 export interface Env {
   DB: D1Database;
+  // Fudge: account database (fudge-account-production) for consent write-back.
+  ACCOUNT_DB?: D1Database;
   ARCHIVE: R2Bucket;
   LINK_SIGNING_KEY: string;
   ATTACHMENT_SIGNING_KEY: string;
@@ -141,6 +144,30 @@ export default {
           .bind(sub)
           .run();
         ctx.waitUntil(logEvent(env, 'unsubscribe', unsubCampaignId, sub, req, null, null, nlRow?.newsletter_id ?? null).catch(console.error));
+        // Fudge: record the opt-out in the account database so future audience
+        // exports leave this address out. Awaited (not waitUntil) so a failure
+        // is logged before we report success; the local unsubscribe stands either way.
+        if (nlRow?.email) {
+          try {
+            const changed = await recordFudgeOptOut(env.ACCOUNT_DB, nlRow.email);
+            await writeLog(env.DB, {
+              source: 'tracker',
+              event: 'fudge.opt_out',
+              newsletterId: nlRow.newsletter_id,
+              message: `Fudge consent set to unsubscribed for ${nlRow.email} (${changed} account(s))`,
+              detail: { subscriberId: sub, accounts: changed },
+            });
+          } catch (err) {
+            await writeLog(env.DB, {
+              level: 'error',
+              source: 'tracker',
+              event: 'fudge.opt_out_failed',
+              newsletterId: nlRow.newsletter_id,
+              message: `Fudge consent write-back failed for subscriber ${sub}: ${(err as Error).message}`,
+              detail: { subscriberId: sub, error: (err as Error).message },
+            });
+          }
+        }
         if (isOneClick) return new Response('', { status: 200 });
         return htmlResponse(unsubSuccessPage(nlRow?.name ?? 'this newsletter', nlRow?.email ?? ''));
       }
