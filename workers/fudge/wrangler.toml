@@ -6,6 +6,12 @@ main = "src/index.ts"
 compatibility_date = "2026-11-01"
 compatibility_flags = ["nodejs_compat"]
 workers_dev = true
+preview_urls = false
+
+# Unsubscribe links (TRACKING_BASE_URL) are served from the sending subdomain.
+[[routes]]
+pattern = "news.withfudge.com"
+custom_domain = true
 
 # Most configuration is read from the D1 `settings` table (shared/settings.ts):
 # BASE_DOMAIN, FROM_ADDRESS, TRACKING_BASE_URL, footers and warmup caps.
