@@ -147,7 +147,7 @@ export default {
         // Fudge: record the opt-out in the account database so future audience
         // exports leave this address out. Awaited (not waitUntil) so a failure
         // is logged before we report success; the local unsubscribe stands either way.
-        if (nlRow?.email) {
+        if (nlRow?.email && env.ACCOUNT_DB) {
           try {
             const changed = await recordFudgeOptOut(env.ACCOUNT_DB, nlRow.email);
             await writeLog(env.DB, {
